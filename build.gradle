@@ -210,10 +210,9 @@ task docs(type:Exec) {
     dependsOn("shadowJar")
     dependsOn("generateExamples")
 
-    environment "CASSANDRA_EASY_STRESS_VERSION", "${version}"
-    commandLine 'docker-compose', 'up', 'docs'
+    commandLine 'mdbook', 'build', 'docs'
     group = "Documentation"
-    description = "Build website documentation"
+    description = "Build website documentation using mdbook"
 }
 
 task generateExamples(type: Exec) {

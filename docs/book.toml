@@ -1,0 +1,14 @@
+[book]
+title = "cassandra-easy-stress"
+authors = ["Jon Haddad", "Anthony Grasso"]
+language = "en"
+
+[build]
+build-dir = "../site"
+
+[output.html]
+git-repository-url = "https://github.com/apache/cassandra-easy-stress"
+
+[preprocessor.admonish]
+command = "mdbook-admonish"
+assets_version = "3.0.2"

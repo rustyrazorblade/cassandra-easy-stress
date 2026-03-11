@@ -10,8 +10,8 @@ print_shell() {
     # #2 = command
     echo "running $1"
 
-    printf "$ %s\n" "$2" > manual/examples/"${1}.txt"
-    eval $2 >> manual/examples/"${1}.txt"
+    printf "$ %s\n" "$2" > docs/src/examples/"${1}.txt"
+    eval $2 >> docs/src/examples/"${1}.txt"
     echo "Sleeping"
     sleep 5
 }

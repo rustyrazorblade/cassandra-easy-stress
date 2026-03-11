@@ -38,3 +38,4 @@ buildSrc/build/
 !.brokk/review.md
 !.brokk/project.properties
 .zed
+/site/

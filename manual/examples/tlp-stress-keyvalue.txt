@@ -1,1 +1,0 @@
-$ bin/cassandra-easy-stress run KeyValue -n 10000
