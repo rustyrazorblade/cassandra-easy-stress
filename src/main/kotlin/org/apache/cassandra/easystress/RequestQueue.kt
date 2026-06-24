@@ -44,6 +44,7 @@ class RequestQueue(
 
     companion object {
         val log = logger()
+        private val QueueFullException = RuntimeException("Request queue is full, operation dropped")
     }
 
     init {
@@ -97,6 +98,8 @@ class RequestQueue(
 
                     if (!queue.offer(op)) {
                         context.metrics.errors.mark()
+                        val now = System.nanoTime()
+                        context.collect(op, Either.Right(QueueFullException), now, now)
                     }
                     executed++
                 }
