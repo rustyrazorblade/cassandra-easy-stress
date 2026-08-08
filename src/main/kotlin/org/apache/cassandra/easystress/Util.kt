@@ -25,12 +25,11 @@ Will be used later when adding configuration
  */
 typealias Range<T> = Pair<T, T>
 
+private val randomStringGenerator = RandomStringGenerator.Builder().withinRange(65, 90).build()
+
 /*
 Throwaway - will need to be thought out for
  */
-fun randomString(length: Int): String {
-    val generator = RandomStringGenerator.Builder().withinRange(65, 90).build()
-    return generator.generate(length)
-}
+fun randomString(length: Int): String = randomStringGenerator.generate(length)
 
 fun round(num: Double): Double = DecimalFormat("##.##").format(num).toDouble()
