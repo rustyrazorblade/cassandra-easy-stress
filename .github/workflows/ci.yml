@@ -31,9 +31,7 @@ jobs:
         with:
           java-version: ${{ matrix.java }}
           distribution: "temurin"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+          cache: "gradle"
 
       - name: Run tests (${{ matrix.test-task }})
         run: ./gradlew ${{ matrix.test-task }}
@@ -51,9 +49,7 @@ jobs:
         with:
           java-version: 17
           distribution: "temurin"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+          cache: "gradle"
 
       - name: Run ktlint
         run: ./gradlew ktlintCheck
@@ -71,9 +67,7 @@ jobs:
         with:
           java-version: 17
           distribution: "temurin"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+          cache: "gradle"
 
       - name: Run detekt
         run: ./gradlew detekt
@@ -91,9 +85,7 @@ jobs:
         with:
           java-version: 17
           distribution: "temurin"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+          cache: "gradle"
 
       - name: Run tests and generate coverage
         run: ./gradlew test koverXmlReport -x test40 -x test41 -x test50
@@ -112,9 +104,7 @@ jobs:
         with:
           java-version: 17
           distribution: "temurin"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+          cache: "gradle"
 
       - name: Verify distTar builds successfully
         run: ./gradlew distTar
@@ -137,19 +127,13 @@ jobs:
         with:
           java-version: 17
           distribution: "temurin"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+          cache: "gradle"
 
       - name: Build distribution tarball
         run: ./gradlew distTar
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Build and push Docker image
         run: ./gradlew jib
