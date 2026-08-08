@@ -31,6 +31,8 @@ class Random : FieldGenerator {
     var min = 0L
     var max = 100000L
 
+    private val stringGenerator = RandomStringGenerator.Builder().withinRange(65, 90).build()
+
     override fun setParameters(params: List<String>) {
         min = HumanReadableConverter().convert(params[0])
         max = HumanReadableConverter().convert(params[1])
@@ -47,8 +49,7 @@ class Random : FieldGenerator {
     override fun getText(): String {
         val length = ThreadLocalRandom.current().nextInt(min.toInt(), max.toInt())
 
-        val generator = RandomStringGenerator.Builder().withinRange(65, 90).build()
-        return generator.generate(length)
+        return stringGenerator.generate(length)
     }
 
     companion object {
