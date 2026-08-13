@@ -1,6 +1,6 @@
 [versions]
 kotlin = "2.2.20"
-jib = "3.3.0"
+jib = "3.5.4"
 nebula-ospackage = "12.1.1"
 ktlint = "14.0.1"
 detekt = "1.23.8"
@@ -26,11 +26,11 @@ progressbar = "0.7.2"
 hdrhistogram = "2.1.12"
 agrona = "1.22.0"
 parquet = "1.15.2"
-hadoop = "3.4.1"
-junit = "5.1.0"
-junit-params = "5.4.0"
+hadoop = "3.4.3"
+junit = "6.1.3"
+junit-params = "6.1.3"
 assertj = "3.9.1"
-mockk = "1.12.7"
+mockk = "1.14.3"
 coroutines-test = "1.9.0"
 mcp-sdk = "0.7.2"
 ktor = "3.3.0"
@@ -73,6 +73,7 @@ hadoop-mapreduce-client-common = { module = "org.apache.hadoop:hadoop-mapreduce-
 
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
 junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit-params" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
 kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit" }
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect" }

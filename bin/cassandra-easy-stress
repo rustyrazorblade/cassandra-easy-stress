@@ -6,7 +6,18 @@ cd $BASE_STRESS_DIR
 
 JAR=$(find build/libs -name '*-all.jar' | tail -n 1)
 
-java -jar $JAR "$@"
+# Generational ZGC by default; set JAVA_OPTS to override (e.g. to select a
+# different collector). JDK 23+ made generational collection the only ZGC
+# mode and removed -XX:+ZGenerational, so only pass it on older JDKs.
+JAVA_MAJOR_VERSION=$(java -version 2>&1 | awk -F'"' '/version/ {print $2}' | cut -d. -f1)
+if [ "$JAVA_MAJOR_VERSION" -ge 23 ] 2>/dev/null; then
+    DEFAULT_GC_OPTS="-XX:+UseZGC"
+else
+    DEFAULT_GC_OPTS="-XX:+UseZGC -XX:+ZGenerational"
+fi
+JAVA_OPTS="${JAVA_OPTS:-$DEFAULT_GC_OPTS}"
+
+java $JAVA_OPTS -jar $JAR "$@"
 
 
 

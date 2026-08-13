@@ -264,13 +264,13 @@ If `CASSANDRA_VERSION` is not set, it defaults to "5.0".
 The GitHub Actions CI workflow (`.github/workflows/ci.yml`) runs on every push and pull request.
 
 **Test matrix:**
-- **Java versions**: 17 and 21
+- **Java versions**: 21 and 25 (current + next LTS)
 - **Cassandra versions**: 4.0, 4.1, 5.0
 
 This creates 6 test jobs total:
-- Cassandra 4.0 on Java 17 and 21
-- Cassandra 4.1 on Java 17 and 21
-- Cassandra 5.0 on Java 17 and 21
+- Cassandra 4.0 on Java 21 and 25
+- Cassandra 4.1 on Java 21 and 25
+- Cassandra 5.0 on Java 21 and 25
 
 **Workflow steps:**
 
