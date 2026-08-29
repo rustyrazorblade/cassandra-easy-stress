@@ -19,6 +19,8 @@ package org.apache.cassandra.easystress
 
 import com.codahale.metrics.MetricRegistry
 import com.codahale.metrics.ScheduledReporter
+import com.codahale.metrics.SlidingTimeWindowArrayReservoir
+import com.codahale.metrics.Timer
 import io.prometheus.client.CollectorRegistry
 import io.prometheus.client.dropwizard.DropwizardExports
 import io.prometheus.client.exporter.HTTPServer
@@ -67,17 +69,30 @@ class Metrics(
     }
 
     var errors = metricRegistry.meter("errors")
-    val mutations = metricRegistry.timer("mutations")
-    val selects = metricRegistry.timer("selects")
-    val deletions = metricRegistry.timer("deletions")
+    val mutations = shortWindowTimer("mutations")
+    val selects = shortWindowTimer("selects")
+    val deletions = shortWindowTimer("deletions")
 
-    val populate = metricRegistry.timer("populateMutations")
+    val populate = shortWindowTimer("populateMutations")
 
     // Throughput trackers for metrics
     val selectThroughputTracker = getTracker { selects.count }.start()
     val mutationThroughputTracker = getTracker { mutations.count }.start()
     val deletionThroughputTracker = getTracker { deletions.count }.start()
     val populateThroughputTracker = getTracker { populate.count }.start()
+
+    /**
+     * Creates a timer whose percentiles cover only the recent past.
+     *
+     * The Dropwizard default is an ExponentiallyDecayingReservoir, which still weights samples
+     * from about five minutes ago.  The rate limiter optimizer reads these percentiles every few
+     * seconds, so that default makes it react to a signal it has already acted on, and the console
+     * report shows a p99 that lags the run.  A short sliding window fixes both.
+     */
+    private fun shortWindowTimer(name: String) =
+        metricRegistry.timer(name) {
+            Timer(SlidingTimeWindowArrayReservoir(LATENCY_WINDOW_SECONDS, TimeUnit.SECONDS))
+        }
 
     /**
      * We track throughput using separate structures than Dropwizard
@@ -102,4 +117,12 @@ class Metrics(
     fun getDeletionThroughput() = deletionThroughputTracker.getCurrentThroughput()
 
     fun getPopulateThroughput() = populateThroughputTracker.getCurrentThroughput()
+
+    companion object {
+        /**
+         * The window latency percentiles are calculated over.  This must stay short enough that the
+         * rate limiter optimizer sees the effect of its last adjustment before it makes the next one.
+         */
+        const val LATENCY_WINDOW_SECONDS = 10L
+    }
 }

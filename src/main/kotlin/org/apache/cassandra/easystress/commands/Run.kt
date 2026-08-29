@@ -471,16 +471,32 @@ class Run(
         val metrics = createMetrics()
         currentMetrics = metrics // Store for external access
 
+        // The optimizer steers the rate limiter towards a latency target.  Without a target it has
+        // nothing to steer towards, so running it would only cost the user the ramp up.
+        val hasLatencyTarget = maxReadLatency != null || maxWriteLatency != null
+
+        if (useOptimizer && !hasLatencyTarget) {
+            println(
+                "No latency target set, running at a fixed rate of $rate. " +
+                    "Set --max-read-latency or --max-write-latency to let the optimizer find the rate.",
+            )
+        }
+
         // set up the rate limiter optimizer and put it on a schedule
+        var optimizerTimer: Timer? = null
         val optimizer =
-            if (useOptimizer) {
+            if (useOptimizer && hasLatencyTarget) {
                 val opt = RateLimiterOptimizer(rateLimiter, metrics, maxReadLatency, maxWriteLatency)
                 opt.reset()
 
-                // Schedule the optimizer to run periodically
-                Timer().schedule(10000, 5000) {
-                    opt.execute()
-                }
+                // Schedule the optimizer to run periodically.  It is a daemon so it can never hold
+                // the JVM open, and it is cancelled in the finally block below.
+                optimizerTimer =
+                    Timer("rate-limiter-optimizer", true).apply {
+                        schedule(10000, 5000) {
+                            opt.execute()
+                        }
+                    }
                 opt
             } else {
                 null
@@ -538,6 +554,7 @@ class Run(
         } finally {
             // we need to be able to run multiple tests in the same JVM
             // without this cleanup we could have the metrics runner still running and it will cause subsequent tests to fail
+            optimizerTimer?.cancel()
             metrics.shutdown()
             currentMetrics = null // Clear reference when done
             collector.close(context)
