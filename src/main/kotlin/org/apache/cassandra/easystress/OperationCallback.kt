@@ -27,15 +27,13 @@ import java.util.function.BiConsumer
 
 /**
  * Callback after a mutation or select
- * This was moved out of the inline ProfileRunner to make populate mode easier
- * as well as reduce clutter
+ * This was moved out of the inline ProfileRunner to reduce clutter
  */
 class OperationCallback(
     val context: StressContext,
     val runner: IStressRunner,
     val op: Operation,
     val startNanos: Long,
-    val populatePhase: Boolean,
 ) : BiConsumer<AsyncResultSet?, Throwable?> {
     companion object {
         val log = logger()
@@ -53,7 +51,7 @@ class OperationCallback(
         }
 
         val endNanos = System.nanoTime()
-        context.timer(op, populatePhase).update(endNanos - op.createdAtNanos, TimeUnit.NANOSECONDS)
+        context.timer(op).update(endNanos - op.createdAtNanos, TimeUnit.NANOSECONDS)
         // TODO (visibility): include details about paging?
         context.collect(op, Either.Left(result!!), startNanos, endNanos)
 

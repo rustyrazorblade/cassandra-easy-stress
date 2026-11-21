@@ -187,20 +187,18 @@ class RateLimiterOptimizer(
     fun getTotalOperations(): Long =
         metrics.mutations.count +
             metrics.selects.count +
-            metrics.deletions.count +
-            metrics.populate.count
+            metrics.deletions.count
 
     fun getCurrentTotalThroughput(): Double =
         metrics.getSelectThroughput() +
             metrics.getMutationThroughput() +
-            metrics.getDeletionThroughput() +
-            metrics.getPopulateThroughput()
+            metrics.getDeletionThroughput()
 
     /**
      * Determines which latency metric is most critical and returns it with its target.
      *
-     * This method intelligently selects between read, write, and populate latencies
-     * based on the current test phase and latency ratio to target.
+     * This method selects between read and write latencies based on the latency ratio to target.
+     * It starts after the populate phase, which does not use the rate limiter.
      *
      * @return An Optional containing the current latency and its target maximum value
      */
@@ -209,11 +207,6 @@ class RateLimiterOptimizer(
         if (maxWriteLatency == null && maxReadLatency == null) {
             log.debug("No latency targets specified")
             return Optional.empty()
-        }
-
-        // Case: In populate phase
-        if (isInPopulatePhase()) {
-            return getPopulatePhaseLatency()
         }
 
         // Case: Only write latency target specified
@@ -232,27 +225,6 @@ class RateLimiterOptimizer(
 
         // Case: Both read and write latency targets specified - determine which is more critical
         return determineCriticalLatency()
-    }
-
-    /**
-     * Checks if we're currently in the populate phase
-     */
-    private fun isInPopulatePhase(): Boolean =
-        metrics.mutations.count == 0L &&
-            metrics.selects.count == 0L &&
-            metrics.deletions.count == 0L &&
-            metrics.populate.count > 0L
-
-    /**
-     * Gets latency information during populate phase
-     */
-    private fun getPopulatePhaseLatency(): Optional<Pair<Double, Long>> {
-        if (maxWriteLatency != null) {
-            val populateLatency = getPopulateLatency()
-            log.info("In populate phase, using populate latency: $populateLatency ms, max: $maxWriteLatency ms")
-            return Optional.of(Pair(populateLatency, maxWriteLatency))
-        }
-        return Optional.empty()
     }
 
     /**
@@ -355,13 +327,8 @@ class RateLimiterOptimizer(
     fun getWriteLatency() = metrics.mutations.snapshot.get99thPercentile() * durationFactor
 
     /**
-     * Gets the current 99th percentile populate operation latency in milliseconds
-     */
-    fun getPopulateLatency() = metrics.populate.snapshot.get99thPercentile() * durationFactor
-
-    /**
      * Resets the optimizer to its initial state, starting the step phase again.
-     * This is typically called after a populate phase completes or when workload parameters change.
+     * This is typically called when workload parameters change.
      */
     @Synchronized
     fun reset() {

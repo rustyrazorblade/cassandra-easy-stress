@@ -525,7 +525,8 @@ class StressTestManager {
                                                 put("selects", metrics.selects.count)
                                                 put("mutations", metrics.mutations.count)
                                                 put("deletions", metrics.deletions.count)
-                                                put("populate", metrics.populate.count)
+                                                put("populate", metrics.populateRows.count)
+                                                put("populate_errors", metrics.populateErrors.count)
                                                 put("errors", metrics.errors.count)
                                                 put(
                                                     "total",

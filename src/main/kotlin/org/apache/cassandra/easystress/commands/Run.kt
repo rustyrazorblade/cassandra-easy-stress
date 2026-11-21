@@ -43,6 +43,8 @@ import org.apache.cassandra.easystress.Context
 import org.apache.cassandra.easystress.FileReporter
 import org.apache.cassandra.easystress.Metrics
 import org.apache.cassandra.easystress.PopulateOption
+import org.apache.cassandra.easystress.PopulateRetryPolicy
+import org.apache.cassandra.easystress.PopulateSettings
 import org.apache.cassandra.easystress.RateLimiterOptimizer
 import org.apache.cassandra.easystress.SchemaBuilder
 import org.apache.cassandra.easystress.SingleLineConsoleReporter
@@ -55,11 +57,13 @@ import org.apache.cassandra.easystress.collector.ParquetCollector
 import org.apache.cassandra.easystress.converters.ConsistencyLevelConverter
 import org.apache.cassandra.easystress.converters.HumanReadableConverter
 import org.apache.cassandra.easystress.converters.HumanReadableTimeConverter
+import org.apache.cassandra.easystress.converters.PopulateRowsConverter
 import org.apache.cassandra.easystress.generators.ParsedFieldFunction
 import org.apache.cassandra.easystress.generators.Registry
 import org.apache.logging.log4j.kotlin.logger
 import java.io.File
 import java.util.Timer
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.concurrent.fixedRateTimer
 import kotlin.concurrent.schedule
 import kotlin.concurrent.thread
@@ -185,10 +189,42 @@ class Run(
 
     @Parameter(
         names = ["--populate"],
-        description = "Pre-population the DB with N rows before starting load test.",
-        converter = HumanReadableConverter::class,
+        description =
+            "Pre-populate the DB with N rows per thread before starting the load test.  " +
+                "Use 'all' (or -1) for --partitions x --populate.batch rows, which visits every partition once " +
+                "with the sequence generator and no deletes.  Deletes, and the random and normal generators, " +
+                "visit some partitions more than once and others not at all.",
+        converter = PopulateRowsConverter::class,
     )
     var populate = 0L
+
+    @Parameter(
+        names = ["--populate.concurrency"],
+        description = "Populate writes allowed in flight at once, per thread.",
+    )
+    var populateConcurrency = 100
+
+    @Parameter(
+        names = ["--populate.generator"],
+        description =
+            "Partition key generator for the populate phase: random, normal, or sequence.  " +
+                "Defaults to the workload's choice, or sequence.",
+    )
+    var populateGenerator: String? = null
+
+    @Parameter(
+        names = ["--populate.batch"],
+        description = "Rows written to a partition in one batch during the populate phase.",
+    )
+    var populateBatch = 1
+
+    @Parameter(
+        names = ["--populate.deletes", "--populate.deleteratio"],
+        description =
+            "Ratio of populate writes that are deletes, 0-1.  Defaults to 0.  Each delete counts as one row " +
+                "and uses up a visit to a partition.  --deleterate only applies to the main phase.",
+    )
+    var populateDeleteRatio: Double? = null
 
     @Parameter(names = ["--threads", "-t"], description = "Threads to run")
     var threads = 1
@@ -386,6 +422,10 @@ class Run(
                 .withString(DefaultDriverOption.REQUEST_TIMEOUT, "30s")
                 .withString(DefaultDriverOption.CONTROL_CONNECTION_TIMEOUT, "10s")
                 .withString(DefaultDriverOption.METADATA_SCHEMA_REQUEST_TIMEOUT, "30s")
+                // populate retries every failed write, the main phase keeps the driver default
+                .startProfile(PopulateRetryPolicy.POPULATE_PROFILE)
+                .withClass(DefaultDriverOption.RETRY_POLICY_CLASS, PopulateRetryPolicy::class.java)
+                .endProfile()
 
         // Configure page size if specified
         if (paging != null) {
@@ -421,8 +461,10 @@ class Run(
 
         // Show settings about to be used
         println(
-            "Executing $iterations operations with consistency level $consistencyLevel and serial consistency " +
-                "level $serialConsistencyLevel",
+            """
+            Executing $iterations operations with consistency level $consistencyLevel
+            and serial consistency level $serialConsistencyLevel
+            """.trimIndent(),
         )
 
         // Build the session
@@ -442,14 +484,16 @@ class Run(
         iterations = if (duration == 0L && iterations == 0L) DEFAULT_ITERATIONS else iterations
 
         Preconditions.checkArgument(
-            partitionKeyGenerator in setOf("random", "normal", "sequence"),
-            "Partition generator Supports random, normal, and sequence.",
+            partitionKeyGenerator in WorkloadRunner.GENERATORS,
+            "Partition generator supports ${WorkloadRunner.GENERATORS.keys.joinToString()}.",
         )
 
         Preconditions.checkArgument(
             protocolCompression.trim().lowercase() in setOf("lz4", "none"),
             "Protocol compression must be either 'lz4' or 'none'.",
         )
+
+        checkPopulateArguments()
 
         val workload = Workload.getWorkloads().get(this@Run.workload) ?: error("${this@Run.workload} profile does not exist")
 
@@ -460,8 +504,10 @@ class Run(
                     workload.getProperty(key)
                 } catch (nsee: java.util.NoSuchElementException) {
                     error(
-                        "Workload ${this@Run.workload} has no parameter '$key'. Please run the 'info' command to " +
-                            "see the list of available parameters for this workload.",
+                        """
+                        Workload ${this@Run.workload} has no parameter '$key'.
+                        Please run the 'info' command to see the list of available parameters for this workload.
+                        """.trimIndent(),
                     )
                 }
             )
@@ -506,27 +552,18 @@ class Run(
 
         if (useOptimizer && !hasLatencyTarget) {
             println(
-                "No latency target set, running at a fixed rate of $rate. " +
-                    "Set --max-read-latency or --max-write-latency to let the optimizer find the rate.",
+                """
+                No latency target set, running at a fixed rate of $rate.
+                Set --max-read-latency or --max-write-latency to let the optimizer find the rate.
+                """.trimIndent(),
             )
         }
 
-        // set up the rate limiter optimizer and put it on a schedule
+        // The optimizer is scheduled after populate, which does not use the rate limiter.
         var optimizerTimer: Timer? = null
         val optimizer =
             if (useOptimizer && hasLatencyTarget) {
-                val opt = RateLimiterOptimizer(rateLimiter, metrics, maxReadLatency, maxWriteLatency)
-                opt.reset()
-
-                // Schedule the optimizer to run periodically.  It is a daemon so it can never hold
-                // the JVM open, and it is cancelled in the finally block below.
-                optimizerTimer =
-                    Timer("rate-limiter-optimizer", true).apply {
-                        schedule(10000, 5000) {
-                            opt.execute()
-                        }
-                    }
-                opt
+                RateLimiterOptimizer(rateLimiter, metrics, maxReadLatency, maxWriteLatency)
             } else {
                 null
             }
@@ -541,12 +578,20 @@ class Run(
             val runners = createRunners(workload, context)
 
             populateData(workload, runners, metrics)
-            metrics.resetErrors()
             metrics.resetThroughputTrackers()
 
-            // since the populate workload is going to be substantially different
-            // from the test workload, we need to reset the optimizer
-            optimizer?.reset()
+            optimizer?.let { opt ->
+                opt.reset()
+
+                // Schedule the optimizer to run periodically.  It is a daemon so it can never hold
+                // the JVM open, and it is cancelled in the finally block below.
+                optimizerTimer =
+                    Timer("rate-limiter-optimizer", true).apply {
+                        schedule(10000, 5000) {
+                            opt.execute()
+                        }
+                    }
+            }
 
             metrics.startReporting()
             println("Prometheus metrics are available at http://localhost:$prometheusPort/")
@@ -576,8 +621,12 @@ class Run(
             }
         } catch (e: Exception) {
             println(
-                "There was an error with cassandra-easy-stress.  Please file a bug at " +
-                    "https://github.com/apache/cassandra-easy-stress and report the following exception:\n $e",
+                // trimMargin, not trimIndent: the exception can hold lines with no indent
+                """
+                |There was an error with cassandra-easy-stress.  Please file a bug at
+                |https://github.com/apache/cassandra-easy-stress and report the following exception:
+                | $e
+                """.trimMargin(),
             )
             throw e
         } finally {
@@ -628,59 +677,92 @@ class Run(
         runners: List<WorkloadRunner>,
         metrics: Metrics,
     ) {
-        // The --populate flag can be overridden by the profile
+        val settings = resolvePopulateSettings(workload)
+        val generator = populateGenerator ?: workload.instance.getPopulatePartitionKeyGenerator().orElse("sequence")
 
-        val option = workload.instance.getPopulateOption(this)
-        var deletes = true
+        println("Prepopulating data with ${settings.rows} records per thread ($threads)")
 
-        val max =
-            when (option) {
-                is PopulateOption.Standard -> {
-                    populate
-                }
-                is PopulateOption.Custom -> {
-                    println("Using workload specific populate options of ${option.rows}")
-                    deletes = option.deletes
-                    if (!deletes) {
-                        println("Not doing deletes in populate phase")
-                    }
-                    option.rows
-                }
-            }
-
-        println("Prepopulating data with $max records per thread ($threads)")
-
-        if (max > 0) {
-            ProgressBar("Populate Progress", max * threads, ProgressBarStyle.ASCII).use {
-                // update the timer every second, starting 1 second from now, as a daemon thread
-                val timer =
-                    fixedRateTimer("progress-bar", true, 1000, 1000) {
-                        it.stepTo(metrics.populate.count)
-                    }
-
-                // calling it on the runner
-                val threads = mutableListOf<Thread>()
-
-                runners.forEach {
-                    val tmp =
-                        thread(start = true, isDaemon = false, name = "populate-X") {
-                            it.populate(max, deletes)
-                        }
-                    threads.add(tmp)
-                }
-                Thread.sleep(1000)
-                for (thread in threads) {
-                    thread.join()
-                }
-                // have we really reached 100%?
-                Thread.sleep(1000)
-                // stop outputting the progress bar
-                timer.cancel()
-                // allow the time to die out
-            }
-            Thread.sleep(1000)
-            println("\nPre-populate complete.")
+        if (settings.rows <= 0) {
+            return
         }
+
+        println(
+            """
+            Populate generator: $generator, batch: ${settings.batchSize},
+            delete ratio: ${settings.deleteRatio}, concurrency per thread: ${settings.concurrency}
+            """.trimIndent(),
+        )
+
+        // join() can't see an exception in the thread, so each thread records its own
+        val failures = ConcurrentLinkedQueue<Pair<Int, Throwable>>()
+
+        ProgressBar("Populate Progress", settings.rows * threads, ProgressBarStyle.ASCII).use { bar ->
+            // update the bar every second, starting 1 second from now, as a daemon thread
+            val timer =
+                fixedRateTimer("progress-bar", true, 1000, 1000) {
+                    bar.stepTo(metrics.populateRows.count + metrics.populateErrors.count)
+                }
+
+            // each runner returns once all of its writes have completed
+            runners
+                .map { runner ->
+                    thread(start = true, isDaemon = false, name = "populate-${runner.context.thread}") {
+                        try {
+                            runner.populate(settings, generator)
+                        } catch (t: Throwable) {
+                            failures.add(runner.context.thread to t)
+                        }
+                    }
+                }.forEach { it.join() }
+
+            timer.cancel()
+            bar.stepTo(metrics.populateRows.count + metrics.populateErrors.count)
+        }
+        println("\nPre-populate complete: ${metrics.populateRows.count} rows written, ${metrics.populateErrors.count} rows failed.")
+
+        // A thread that stopped early did not write its rows, so the main phase must not start.
+        failures.firstOrNull()?.let { (thread, cause) ->
+            throw IllegalStateException("Populate failed on ${failures.size} of $threads threads; thread $thread: $cause", cause)
+        }
+    }
+
+    /**
+     * Works out the populate settings.  A workload's populate option overrides --populate, and the
+     * --populate.* flags win over the workload's choice where both exist.
+     *
+     * PopulateLoop writes --populate.batch rows on each visit to a key, so a count of keys to visit
+     * (--populate all, or a workload's custom count) becomes keys * batch rows.
+     */
+    private fun resolvePopulateSettings(workload: Workload): PopulateSettings {
+        val option = workload.instance.getPopulateOption(this)
+
+        val rows =
+            when (option) {
+                is PopulateOption.Standard -> if (populate == PopulateRowsConverter.ALL) partitionCount * populateBatch else populate
+                is PopulateOption.Custom -> {
+                    println("Using workload specific populate options of ${option.partitions} partitions")
+                    option.partitions * populateBatch
+                }
+            }
+
+        return PopulateSettings(rows, populateBatch, populateDeleteRatio ?: 0.0, populateConcurrency)
+    }
+
+    private fun checkPopulateArguments() {
+        Preconditions.checkArgument(
+            populate >= 0 || populate == PopulateRowsConverter.ALL,
+            "--populate must be a row count or 'all'.",
+        )
+        Preconditions.checkArgument(populateConcurrency > 0, "--populate.concurrency must be at least 1.")
+        Preconditions.checkArgument(populateBatch > 0, "--populate.batch must be at least 1.")
+        Preconditions.checkArgument(
+            populateGenerator == null || populateGenerator in WorkloadRunner.GENERATORS,
+            "--populate.generator supports ${WorkloadRunner.GENERATORS.keys.joinToString()}.",
+        )
+        Preconditions.checkArgument(
+            populateDeleteRatio == null || populateDeleteRatio!! in 0.0..1.0,
+            "--populate.deletes must be between 0 and 1.",
+        )
     }
 
     private fun createRunners(

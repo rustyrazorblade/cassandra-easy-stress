@@ -22,6 +22,7 @@ import com.datastax.oss.driver.api.core.cql.AsyncResultSet
 import com.datastax.oss.driver.api.core.cql.PreparedStatement
 import org.apache.cassandra.easystress.PartitionKey
 import org.apache.cassandra.easystress.StressContext
+import java.util.concurrent.ConcurrentHashMap
 
 class LWT : IStressWorkload {
     lateinit var insert: PreparedStatement
@@ -47,7 +48,8 @@ class LWT : IStressWorkload {
         )
 
         return object : IStressRunner {
-            val state = mutableMapOf<String, Int>()
+            // onSuccess writes here from the driver's threads while the runner thread reads it
+            val state = ConcurrentHashMap<String, Int>()
 
             override fun getNextMutation(partitionKey: PartitionKey): Operation {
                 val currentValue = state[partitionKey.getText()]

@@ -42,13 +42,13 @@ class PartitionKeyGenerator(
             PartitionKeyGenerator({ max -> ThreadLocalRandom.current().nextLong(0, max) }, prefix)
 
         /**
-         *
+         * Walks 0 until max, then wraps, so it covers the same keys as [random].
          */
         fun sequence(prefix: String = "test"): PartitionKeyGenerator {
             var current = 0L
             return PartitionKeyGenerator(
                 { max ->
-                    if (current > max) {
+                    if (current >= max) {
                         current = 0
                     }
                     current++

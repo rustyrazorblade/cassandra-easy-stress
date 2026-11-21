@@ -20,7 +20,6 @@ package org.apache.cassandra.easystress.workloads
 import com.datastax.oss.driver.api.core.CqlSession
 import com.datastax.oss.driver.api.core.cql.PreparedStatement
 import org.apache.cassandra.easystress.PartitionKey
-import org.apache.cassandra.easystress.PartitionKeyGenerator
 import org.apache.cassandra.easystress.PopulateOption
 import org.apache.cassandra.easystress.StressContext
 import org.apache.cassandra.easystress.commands.Run
@@ -68,9 +67,9 @@ class Locking : IStressWorkload {
         return listOf(query)
     }
 
-    override fun getPopulateOption(args: Run): PopulateOption = PopulateOption.Custom(args.partitionCount, deletes = false)
+    override fun getPopulateOption(args: Run): PopulateOption = PopulateOption.Custom(args.partitionCount)
 
-    override fun getPopulatePartitionKeyGenerator(): Optional<PartitionKeyGenerator> = Optional.of(PartitionKeyGenerator.sequence("test"))
+    override fun getPopulatePartitionKeyGenerator(): Optional<String> = Optional.of("sequence")
 
     override fun getRunner(context: StressContext): IStressRunner {
         return object : IStressRunner {

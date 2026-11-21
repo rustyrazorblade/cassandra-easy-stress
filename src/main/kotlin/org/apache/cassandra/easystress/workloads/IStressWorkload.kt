@@ -21,7 +21,6 @@ import com.datastax.oss.driver.api.core.CqlSession
 import com.datastax.oss.driver.api.core.cql.AsyncResultSet
 import com.datastax.oss.driver.api.core.cql.BoundStatement
 import org.apache.cassandra.easystress.PartitionKey
-import org.apache.cassandra.easystress.PartitionKeyGenerator
 import org.apache.cassandra.easystress.PopulateOption
 import org.apache.cassandra.easystress.StressContext
 import org.apache.cassandra.easystress.commands.Run
@@ -114,7 +113,11 @@ interface IStressWorkload {
 
     fun getPopulateOption(args: Run): PopulateOption = PopulateOption.Standard()
 
-    fun getPopulatePartitionKeyGenerator(): Optional<PartitionKeyGenerator> = Optional.empty()
+    /**
+     * Name of the partition key generator populate uses, unless --populate.generator is given.
+     * Returns a name rather than a generator so the runner can give it the per-thread key prefix.
+     */
+    fun getPopulatePartitionKeyGenerator(): Optional<String> = Optional.empty()
 }
 
 sealed class Operation(

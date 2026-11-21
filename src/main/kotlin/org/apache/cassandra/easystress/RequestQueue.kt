@@ -37,7 +37,6 @@ class RequestQueue(
     runner: IStressRunner,
     readRate: Double,
     deleteRate: Double,
-    val populatePhase: Boolean = false,
 ) {
     val queue = ArrayBlockingQueue<Operation>(context.mainArguments.queueDepth.toInt(), true)
     var generatorThread: Thread
@@ -55,7 +54,7 @@ class RequestQueue(
 
                 val desiredEndTime = LocalDateTime.now().plusSeconds(duration)
                 var executed = 0L
-                log.info("populate=$populatePhase total values: $totalValues, duration: $duration")
+                log.info("total values: $totalValues, duration: $duration")
 
                 for (key in partitionKeyGenerator.generateKey(totalValues, context.mainArguments.partitionCount)) {
                     if (duration > 0 && desiredEndTime.isBefore(LocalDateTime.now())) {
@@ -82,16 +81,11 @@ class RequestQueue(
                         acquire(1)
                     }
 
-                    // we only do the mutations in non-populate run
                     val op =
-                        if (!populatePhase && readRate * 100 > nextOp) {
+                        if (readRate * 100 > nextOp) {
                             runner.getNextSelect(key)
                         } else if (deleteRate > 0.0 && (readRate * 100) + (deleteRate * 100) > nextOp) {
-                            // we might be in a populate phase but only if the user specifically requested it
                             runner.getNextDelete(key)
-                        } else if (populatePhase) {
-                            // at this point we're either populating or we're in a normal run
-                            runner.getNextPopulate(key)
                         } else {
                             runner.getNextMutation(key)
                         }

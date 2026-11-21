@@ -45,7 +45,7 @@ internal class PartitionKeyGeneratorTest {
                 .take(5)
                 .toList()
                 .map { it.id.toInt() }
-        assertThat(data).isEqualTo(listOf(0, 1, 2, 0, 1))
+        assertThat(data).isEqualTo(listOf(0, 1, 0, 1, 0))
     }
 
     @Test

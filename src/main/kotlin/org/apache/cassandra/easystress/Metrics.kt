@@ -52,11 +52,6 @@ class Metrics(
         populateThroughputTracker.stop()
     }
 
-    fun resetErrors() {
-        metricRegistry.remove("errors")
-        errors = metricRegistry.meter("errors")
-    }
-
     init {
         server =
             if (httpPort > 0) {
@@ -75,11 +70,18 @@ class Metrics(
 
     val populate = shortWindowTimer("populateMutations")
 
+    // A populate batch is one write but many rows, so rows are counted apart from the timer.
+    val populateRows = metricRegistry.meter("populateRows")
+
+    // Rows the populate phase could not write after the driver retries ran out.  Kept apart from
+    // errors so the main phase starts at zero and the populate failures stay visible.
+    val populateErrors = metricRegistry.meter("populateErrors")
+
     // Throughput trackers for metrics
     val selectThroughputTracker = getTracker { selects.count }.start()
     val mutationThroughputTracker = getTracker { mutations.count }.start()
     val deletionThroughputTracker = getTracker { deletions.count }.start()
-    val populateThroughputTracker = getTracker { populate.count }.start()
+    val populateThroughputTracker = getTracker { populateRows.count }.start()
 
     /**
      * Creates a timer whose percentiles cover only the recent past.
